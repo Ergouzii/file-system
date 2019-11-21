@@ -119,6 +119,7 @@ void fs_mount(char *new_disk_name) {
     }
     //-------------------------------------------------------------------------
     // 4. inode for a file must have a startblock having a value [1, ..., 127]
+    // 5. size & start block of a dir must be zero
     uint8_t is_dir = -1;                                         // 1: is a dir
     for (int i = 0; i < NUM_INODES; i++) {
         is_dir = inode_arr[i].dir_parent >> 7;
@@ -128,8 +129,19 @@ void fs_mount(char *new_disk_name) {
                     code: %d)", new_disk_name, 4);
                 exit(1);
             }
+        } else if (is_dir == 1) {                             // if it's a dir
+            uint8_t size = inode_arr[i].used_size << 1;
+            size = size >> 1;
+            if ((size != 0) || (inode_arr[i].start_block != 0)) {
+                fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                    code: %d)", new_disk_name, 5);
+                exit(1);
+            }
         }
     }
+    //-------------------------------------------------------------------------
+    
+    //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
 
 
