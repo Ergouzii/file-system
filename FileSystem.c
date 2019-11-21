@@ -38,8 +38,8 @@ void fs_mount(char *new_disk_name) {
     // consistency checks:
     //------------------------------------------------------------------------
     // 1. free-space list check
-    uint8_t inode_in_use = -1;
-    for (int i = 0; i < NUM_INODES; i++) { // 126 is the size of the inode list
+    uint8_t inode_in_use = -1;      // 1: inodes is in used, 0: not in use
+    for (int i = 0; i < NUM_INODES; i++) {
         uint8_t start_block = inode_arr[i].start_block;
         uint8_t used_size = inode_arr[i].used_size;
         inode_in_use = used_size >> 7;
@@ -59,7 +59,32 @@ void fs_mount(char *new_disk_name) {
                 exit(1);
             }
         }
+    }
     //------------------------------------------------------------------------
+    // 2. name of file/dir must be unique in each dir
+    // extract the file/dir names and parent dir to an array
+    // TODO: should I compare empty names? -> 00000...0
+    char name_arr[NUM_INODES];
+    uint8_t dir_parent_arr[NUM_INODES];
+    for (int i = 0; i < NUM_INODES; i++) {
+        name_arr[i] = inode_arr[i].name;
+        dir_parent_arr[i] = inode_arr[i].dir_parent;
+    }
+    // check if there is a duplicate name under the same parent dir
+    for (int i = 0; i < NUM_INODES; i++) {
+        for (int j = i + 1; j < NUM_INODES; j++) {
+            if ((strcmp(name_arr[i], name_arr[j]) == 0) && \ 
+                (dir_parent_arr[i] == dir_parent_arr[j])) {
+                fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                    code: %d)", new_disk_name, 2);
+                exit(1);
+            }
+        }
+    }
+    
+    //------------------------------------------------------------------------
+    //------------------------------------------------------------------------
+
 
 }
 
