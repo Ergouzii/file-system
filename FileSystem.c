@@ -140,8 +140,27 @@ void fs_mount(char *new_disk_name) {
         }
     }
     //-------------------------------------------------------------------------
-    
-    //-------------------------------------------------------------------------
+    // 6. parent dir cannot be 126 (can be 0~125, 127); if 0~125: parent node
+    //    must be in use, and marked as dir
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t dir_parent = inode_arr[i].dir_parent << 1;
+        dir_parent = dir_parent >> 1;
+        uint8_t is_dir = inode_arr[i].dir_parent >> 7;
+        if (dir_parent == 126) {
+            fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                code: %d)", new_disk_name, 6);
+            exit(1);
+        } else if ((dir_parent >= 0) || (dir_parent <= 125)) {
+            Inode parent = inode_arr[dir_parent];
+            uint8_t parent_in_use = parent.used_size >> 7;
+            uint8_t parent_is_dir = parent.dir_parent >> 7;
+            if ((parent_in_use == 0) || (parent_is_dir == 0)) {
+                fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                    code: %d)", new_disk_name, 6);
+                exit(1);
+            }
+        }
+    }
     //-------------------------------------------------------------------------
 
 
