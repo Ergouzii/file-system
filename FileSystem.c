@@ -34,9 +34,9 @@ void fs_mount(char *new_disk_name) {
     char *free_block_arr = super_block.free_block_list;
     Inode *inode_arr = super_block.inode;
 
-    //------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
     // consistency checks:
-    //------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
     // 1. free-space list check
     uint8_t inode_in_use = -1;      // 1: inodes is in used, 0: not in use
     for (int i = 0; i < NUM_INODES; i++) {
@@ -60,7 +60,7 @@ void fs_mount(char *new_disk_name) {
             }
         }
     }
-    //------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
     // 2. name of file/dir must be unique in each dir
     // extract the file/dir names and parent dir to an array
     // TODO: should I compare empty names? -> 00000...0
@@ -81,9 +81,44 @@ void fs_mount(char *new_disk_name) {
             }
         }
     }
-    
-    //------------------------------------------------------------------------
-    //------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    // 3. if inode state is free (0), all bits in inode must be 0; otherwise,
+    // its name has at least one non-zero bit
+    uint8_t inode_in_use = -1;
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t used_size = inode_arr[i].used_size;
+        inode_in_use = used_size >> 7;
+        if (inode_in_use == 0) {                            // if inode is free
+            // check if name is 0's
+            for (int j = 0; j < 5; j++) {
+                if (inode_arr[i].name[j] != 0) {
+                    fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                        code: %d)", new_disk_name, 3);
+                    exit(1);
+                }
+            }
+            if ((used_size != 0) || (inode_arr[i].start_block != 0) || \
+                    (inode_arr[i].dir_parent != 0)) {
+                fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                    code: %d)", new_disk_name, 3);
+                exit(1);
+            }
+        } else {                                             // if inode in use
+            int has_one = 0;
+            for (int i = 0; i < 5; i++) {
+                if (inode_arr[i].name[i] == 1) {
+                    has_one = 1;
+                }
+            }
+            if (has_one == 0) {
+                fprintf(stderr, "Error: File System in %s is inconsistent (error \
+                    code: %d)", new_disk_name, 3);
+                exit(1);
+            }
+        }
+    }
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
 
 
 }
