@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <sys/mount.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <string.h>
 #include "FileSystem.h"
 
 #define ONE_KB 1024
@@ -12,6 +12,66 @@
 char buffer[ONE_KB];
 char *cwd;                                 // keep track of current working dir
 Super_block super_block;                                  // init a super block
+Super_block old_super_block;                           // keep track of old s_b
+bool has_old_super_block = false;
+
+int main(int argc, char **argv) {
+    char *input_file = argv[1];
+    FILE *input_fp;
+    char *line = NULL;
+    size_t linecap = 0;
+    ssize_t linelen;
+
+    input_fp = fopen(input_file, "r");
+    if (input_fp == NULL)
+        exit(EXIT_FAILURE);
+
+    char *tokenized[100];
+
+    while ((linelen = getline(&line, &linecap, input_fp)) != -1) {
+        tokenize(line, " ", tokenized);
+        handle_input(tokenized);
+    }
+
+    fclose(input_fp);
+    if (line)
+        free(line);
+
+    return 0;
+}
+
+void handle_input(char *tokenized[]) {
+    char *cmd = tokenized[0];
+    if (strcmp(cmd, "M") == 0) {
+        fs_mount(tokenized[1]);
+    } else if (strcmp(cmd, "C") == 0) {
+        fs_create(tokenized[1], atoi(tokenized[2]));
+    } else if (strcmp(cmd, "D") == 0) {
+        fs_delete(tokenized[1]);
+    } else if (strcmp(cmd, "R") == 0) {
+        fs_read(tokenized[1], atoi(tokenized[2]));
+    } else if (strcmp(cmd, "W") == 0) {
+        fs_write(tokenized[1], atoi(tokenized[2]));
+    } else if (strcmp(cmd, "B") == 0) {
+        if ((tokenized[1] == NULL) || (strcmp(tokenized[1], " ") == 0)) {
+            uint8_t buff[1024];
+            for (int i = 0; i < 1024; i++) {
+                buff[i] = 0;
+            }
+            fs_buff(buff);
+        } else {
+            fs_buff((uint8_t *)(tokenized[1]));
+        }
+    } else if (strcmp(cmd, "L") == 0) {
+        fs_ls();
+    } else if (strcmp(cmd, "E") == 0) {
+        fs_resize(tokenized[1], atoi(tokenized[2]));
+    } else if (strcmp(cmd, "O") == 0) {
+        fs_defrag();
+    } else if (strcmp(cmd, "Y") == 0) {
+        fs_cd(tokenized[1]);
+    }
+}
 
 
 /*
@@ -24,7 +84,7 @@ void fs_mount(char *new_disk_name) {
 
     FILE *disk;
 
-    disk = fopen(new_disk_name, 'r');
+    disk = fopen(new_disk_name, "r");
     if (disk == NULL) {                          // if disk name does not exist
         fprintf(stderr, "Error: Cannot find disk %s", new_disk_name);
         exit(1);
@@ -69,7 +129,7 @@ void fs_mount(char *new_disk_name) {
     // 2. name of file/dir must be unique in each dir
     // extract the file/dir names and parent dir to an array
     if (is_consistent) {             // only check this when above tests passed
-        char name_arr[NUM_INODES];
+        char *name_arr[NUM_INODES];
         uint8_t dir_parent_arr[NUM_INODES];
         for (int i = 0; i < NUM_INODES; i++) {
             name_arr[i] = inode_arr[i].name;
@@ -78,7 +138,7 @@ void fs_mount(char *new_disk_name) {
         // check if there is a duplicate name under the same parent dir
         for (int i = 0; i < NUM_INODES; i++) {
             for (int j = i + 1; j < NUM_INODES; j++) {
-                if ((strcmp(name_arr[i], name_arr[j]) == 0) && \ 
+                if ((strcmp(name_arr[i], name_arr[j]) == 0) && \
                     (dir_parent_arr[i] == dir_parent_arr[j])) {
                     fprintf(stderr, "Error: File System in %s is inconsistent (error \
                         code: %d)", new_disk_name, 2);
@@ -136,7 +196,7 @@ void fs_mount(char *new_disk_name) {
         uint8_t is_dir = -1;                                         // 1: is a dir
         for (int i = 0; i < NUM_INODES; i++) {
             is_dir = inode_arr[i].dir_parent >> 7;
-            if (is_dir = 0) {                                     // if it's a file
+            if (is_dir == 0) {                                     // if it's a file
                 if ((inode_arr[i].start_block < 1) || (inode_arr[i].start_block > 127)) {
                     fprintf(stderr, "Error: File System in %s is inconsistent (error \
                         code: %d)", new_disk_name, 4);
@@ -162,7 +222,6 @@ void fs_mount(char *new_disk_name) {
         for (int i = 0; i < NUM_INODES; i++) {
             uint8_t dir_parent = inode_arr[i].dir_parent << 1;
             dir_parent = dir_parent >> 1;
-            uint8_t is_dir = inode_arr[i].dir_parent >> 7;
             if (dir_parent == 126) {
                 fprintf(stderr, "Error: File System in %s is inconsistent (error \
                     code: %d)", new_disk_name, 6);
@@ -185,6 +244,11 @@ void fs_mount(char *new_disk_name) {
     // consistency checks done
     //-------------------------------------------------------------------------
 
+    // if (!is_consistent) {                                  // if not consistent
+    //     if ()
+    //     super_block = old_super_block;                       // use the old s_b
+    // } else {
+    // }
 
 }
 
@@ -194,7 +258,9 @@ Creates a new file with the provided name and size in the current working dir.
 
 Usage: C <file name> <file size>
 */
-void fs_create(char name[5], int size);
+void fs_create(char name[5], int size) {
+
+}
 
 
 /*
@@ -202,7 +268,9 @@ Deletes the specified file from current working dir.
 
 Usage: D <file name>
 */
-void fs_delete(char name[5]);
+void fs_delete(char name[5]) {
+
+}
 
 
 /*
@@ -210,7 +278,9 @@ Reads the block-number-th block from the specified file into buffer.
 
 Usage: R <file name> <block number>
 */
-void fs_read(char name[5], int block_num);
+void fs_read(char name[5], int block_num) {
+
+}
 
 
 /*
@@ -218,7 +288,9 @@ Writes the data in the buffer to the block-number-th block of the specified file
 
 Usage: W <file name> <block number>
 */
-void fs_write(char name[5], int block_num);
+void fs_write(char name[5], int block_num) {
+
+}
 
 
 /*
@@ -227,7 +299,9 @@ provided. If fewer characters are provided, the remaining bytes are set to 0.
 
 Usage: B <new buffer characters>
 */
-void fs_buff(uint8_t buff[1024]);
+void fs_buff(uint8_t buff[1024]) {
+    printf("here\n");
+}
 
 
 /*
@@ -235,7 +309,9 @@ Lists all the files/dirs in the current working dir, including . and ..
 
 Usage: L
 */
-void fs_ls(void);
+void fs_ls(void) {
+
+}
 
 
 /*
@@ -244,7 +320,9 @@ must be deleted (zeroed out).
 
 Usage: E <file name> <new size>
 */
-void fs_resize(char name[5], int new_size);
+void fs_resize(char name[5], int new_size) {
+
+}
 
 
 /*
@@ -254,7 +332,9 @@ can be created.
 
 Usage: O
 */
-void fs_defrag(void);
+void fs_defrag(void) {
+
+}
 
 
 /*
@@ -263,4 +343,23 @@ a subdir in the current working dir or the parent of the current working dir.
 
 Usage: Y <dir name>
 */
-void fs_cd(char name[5]);
+void fs_cd(char name[5]) {
+
+}
+
+/**
+ * @brief Tokenize a C string 
+ * 
+ * @param str - The C string to tokenize 
+ * @param delim - The C string containing delimiter character(s) 
+ * @param argv - A char* array that will contain the tokenized strings
+ * Make sure that you allocate enough space for the array.
+ */
+void tokenize(char *str, const char *delim, char *argv[]) {
+  char *token;
+  token = strtok(str, delim); // getting first token
+  for(size_t i = 0; token != NULL; ++i){ //getting the following tokens
+    argv[i] = token;
+    token = strtok(NULL, delim);
+  }
+}
