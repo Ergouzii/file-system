@@ -9,8 +9,9 @@
 #define ONE_KB 1024
 #define NUM_INODES 126
 
+char *disk_name;
 char buffer[ONE_KB];
-char *cwd;                                 // keep track of current working dir
+uint8_t cwd;                                             // current working dir
 Super_block super_block;                                  // init a super block
 Super_block old_super_block;                           // keep track of old s_b
 bool has_old_super_block = false;
@@ -53,7 +54,7 @@ void handle_input(char *tokenized[]) {
     } else if (strcmp(cmd, "W") == 0) {
         fs_write(tokenized[1], atoi(tokenized[2]));
     } else if (strcmp(cmd, "B") == 0) {
-        if ((tokenized[1] == NULL) || (strcmp(tokenized[1], " ") == 0)) {
+        if ((tokenized[1] == NULL) || (tokenized[1] == ' ')) {
             uint8_t buff[1024];
             for (int i = 0; i < 1024; i++) {
                 buff[i] = 0;
@@ -90,12 +91,12 @@ void fs_mount(char *new_disk_name) {
         exit(1);
     }
 
+    disk_name = new_disk_name;
+
     // read the super block from disk
     fread(&super_block, sizeof(Super_block), ONE_KB, disk);
     char *free_block_arr = super_block.free_block_list;
     Inode *inode_arr = super_block.inode;
-
-    // TODO: set cwd to root
 
     //-------------------------------------------------------------------------
     // consistency checks:
@@ -244,12 +245,17 @@ void fs_mount(char *new_disk_name) {
     // consistency checks done
     //-------------------------------------------------------------------------
 
-    // if (!is_consistent) {                                  // if not consistent
-    //     if ()
-    //     super_block = old_super_block;                       // use the old s_b
-    // } else {
-    // }
-
+    if (is_consistent == false) {                          // if not consistent
+        if (has_old_super_block) {
+            super_block = old_super_block;                   // use the old s_b
+        } else {               
+            fprintf(stderr, "Error: No file system is mounted");
+        }
+    } else {                                                   // if consistent
+        old_super_block = super_block;
+        has_old_super_block = true;
+        cwd = 127;                                 // set cwd to root: 01111111
+    }
 }
 
 
@@ -260,6 +266,96 @@ Usage: C <file name> <file size>
 */
 void fs_create(char name[5], int size) {
 
+    Inode *inode_arr = super_block.inode;
+
+    bool valid_create = true;
+
+    //------------------check if there is available inode----------------------
+    bool available_inode = false;
+    int available_inode_index;
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t in_use = inode_arr[i].used_size >> 7;
+        if (in_use == 0) {
+            available_inode_index = i;         // first available inode's index
+            available_inode = true;
+            break;
+        }
+    }
+    if (available_inode == false) {
+        fprintf(stderr, "Error: Superblock in disk %s is full, cannot create \
+                %s", disk_name, name);
+        valid_create = false;
+    }
+
+    //--------------------check for name duplications--------------------------
+    if ((strcmp(name, '.') == 0) || (strcmp(name, '..') == 0)) {
+        fprintf(stderr, "Error: File or directory %s already exists", name);
+        valid_create = false;
+    } else {
+        for (int i = 0; i < NUM_INODES; i++) {
+            if (strcmp(inode_arr[i].dir_parent, cwd) == 0) {
+                if (strcmp(inode_arr[i].name, name) == 0) {
+                    fprintf(stderr, "Error: File or directory %s already \
+                            exists", name);
+                    valid_create = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    //-------------------------------------------------------------------------
+    char *free_block_arr = super_block.free_block_list;
+    int num_free_blocks = 0;
+    uint8_t start_block = 0;
+
+    //---------------------look for contiguous blocks--------------------------
+    bool success = false;
+    if (size != 0) {                                            // if it's file        
+        for (int i = 0; i < 16; i++) {
+            uint8_t byte = free_block_arr[i];
+
+            uint8_t mask = 128;
+            for (int j = 0; j < 8; j++) {               // get each bit in byte
+                uint8_t bit = byte & mask;
+                if (bit == 0) {                    // when finding a free block
+                    num_free_blocks += 1;
+                } else {                     // reset counter if block not free
+                    num_free_blocks = 0;
+                }
+
+                start_block += 1;
+
+                if (num_free_blocks == size) {
+                    
+                    // minus size since start_block pointing to end of contiguous blocks
+                    start_block -= (size - 1);
+
+                    success = true;
+                    break;
+                }
+                mask = mask >> 1;
+            }
+        }
+        if (success == false) {
+            fprintf(stderr, "Error: Cannot allocate %d on %s", size, disk_name);
+        }
+    }
+
+    //---------------------create the file/dir---------------------------------
+    strcpy(inode_arr[available_inode_index].name, name);            // set name
+
+    inode_arr[available_inode_index].start_block = start_block; // set start_block
+
+    uint8_t mask = 128;
+    
+    inode_arr[available_inode_index].used_size = size | mask; // set in_use to 1
+
+    if (size == 0) {                                             // if it's dir
+        inode_arr[available_inode_index].dir_parent = cwd | mask; // set 1st bit to 1
+    } else {                                                    // if it's file
+        inode_arr[available_inode_index].dir_parent = cwd;
+    }
 }
 
 
