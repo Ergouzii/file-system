@@ -343,12 +343,12 @@ void fs_create(char name[5], int size) {
     }
 
     //---------------------create the file/dir---------------------------------
-    strcpy(inode_arr[available_inode_index].name, name);            // set name
+    strncpy(inode_arr[available_inode_index].name, name, 5);            // set name
 
     inode_arr[available_inode_index].start_block = start_block; // set start_block
 
     uint8_t mask = 128;
-    
+
     inode_arr[available_inode_index].used_size = size | mask; // set in_use to 1
 
     if (size == 0) {                                             // if it's dir
@@ -366,6 +366,65 @@ Usage: D <file name>
 */
 void fs_delete(char name[5]) {
 
+    //------------------check if name exists-----------------------------------
+    Inode *inode_arr = super_block.inode;
+    bool name_exists = false;
+    int target_index;
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t dir = inode_arr[i].dir_parent << 1;
+        dir = dir >> 1;
+        if ((strcmp(inode_arr[i].name, name) == 0) && (dir == cwd)) {
+            name_exists = true;
+            target_index = i;
+        }
+    }
+    if (name_exists == false) {
+        fprintf(stderr, "Error: File or directory %s does not exist", name);
+        return;
+    }
+
+    //------------------zero out the file/dir----------------------------------
+    if ((inode_arr[target_index].dir_parent >> 7) == 0) {       // if it's file
+
+        char *free_block_arr = super_block.free_block_list;
+        uint8_t start_block = inode_arr[target_index].start_block;
+        uint8_t used_size = inode_arr[target_index].used_size;
+        uint8_t file_size;
+        file_size = used_size << 1;
+        file_size = used_size >> 1;              // inode status bit is removed
+
+        // clear relevant data blocks
+        int fp = fopen(disk_name,  "r");
+        lseek(fp, start_block, SEEK_SET);
+        char buff[ONE_KB];
+        memset(buff, 0, ONE_KB);
+        for (int i = 0; i < file_size; i++) {
+            write(fp, buff, ONE_KB);                       // clear data blocks
+        }
+
+        // zero out the occupied blocks
+        for (int j = 0; j < file_size; j++) {
+            uint8_t start_index = (start_block + j) / 8; // index of block in free block arr
+            uint8_t start_pos = (start_block + j) % 8;
+            uint8_t byte = free_block_arr[start_index];
+            free_block_arr[start_index] = byte ^ (1 << (7 - start_pos)); // zero out the bit
+        }
+
+        for (int i = 0; i < 5; i++) {
+            inode_arr[target_index].name[i] = NULL;            // zero out name
+        }
+        inode_arr[target_index].used_size = 0;            // zero out used_size
+        inode_arr[target_index].start_block = 0;        // zero out start_block
+        inode_arr[target_index].dir_parent = 0;          // zero out dir_parent
+    } else {                                                     // if it's dir
+        for (int i = 0; i < NUM_INODES; i++) {
+            uint8_t dir = inode_arr[i].dir_parent << 1;
+            dir = dir >> 1;
+            if (dir == target_index) {
+                fs_delete(inode_arr[i].name);
+            }           
+        }
+    }
 }
 
 
