@@ -4,11 +4,15 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "FileSystem.h"
 
 #define ONE_KB 1024
 #define NUM_INODES 126
 
+int disk;
 char *disk_name;
 char buffer[ONE_KB];
 uint8_t cwd;                                             // current working dir
@@ -83,10 +87,8 @@ Usage: M <disk name>
 */
 void fs_mount(char *new_disk_name) {
 
-    FILE *disk;
-
-    disk = fopen(new_disk_name, "r");
-    if (disk == NULL) {                          // if disk name does not exist
+    disk = open(new_disk_name, O_RDWR);
+    if (disk == -1) {                            // if disk name does not exist
         fprintf(stderr, "Error: Cannot find disk %s", new_disk_name);
         exit(1);
     }
@@ -94,7 +96,8 @@ void fs_mount(char *new_disk_name) {
     disk_name = new_disk_name;
 
     // read the super block from disk
-    fread(&super_block, sizeof(Super_block), ONE_KB, disk);
+    fread(&super_block.free_block_list, sizeof(char), 16, disk);
+    fread(&super_block.inode, sizeof(super_block.inode), 126*8, disk);
     char *free_block_arr = super_block.free_block_list;
     Inode *inode_arr = super_block.inode;
 
@@ -394,12 +397,11 @@ void fs_delete(char name[5]) {
         file_size = used_size >> 1;              // inode status bit is removed
 
         // clear relevant data blocks
-        int fp = fopen(disk_name,  "r");
-        lseek(fp, start_block, SEEK_SET);
+        lseek(disk, start_block * ONE_KB, SEEK_SET);  // reset fp to file start
         char buff[ONE_KB];
         memset(buff, 0, ONE_KB);
         for (int i = 0; i < file_size; i++) {
-            write(fp, buff, ONE_KB);                       // clear data blocks
+            write(disk, buff, ONE_KB);                     // clear data blocks
         }
 
         // zero out the occupied blocks
@@ -434,7 +436,36 @@ Reads the block-number-th block from the specified file into buffer.
 Usage: R <file name> <block number>
 */
 void fs_read(char name[5], int block_num) {
+    Inode *inode_arr = super_block.inode;
+    bool name_found = false;
+    int target_index;
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t dir_parent = inode_arr[i].dir_parent << 1;
+        dir_parent = dir_parent >> 1;
+        // if under cwd & name matched & is a file
+        if ((inode_arr[i].dir_parent == cwd) && \          
+                (strcmp(inode_arr[i].name, name) == 0) && \
+                    (inode_arr[i].dir_parent >> 7 == 0)) {
+            name_found = true;
+            target_index = i;
+        }
+    }
+    if (!name_found) {
+        fprintf(stderr, "Error: File %s does not exist", name);
+        return;
+    }
+    uint8_t used_size = inode_arr[target_index].used_size;
+    uint8_t file_size = used_size << 1;
+    file_size = used_size >> 1;
 
+    // check if block_num within [0, file_size - 1]
+    if ((block_num < 0) || (block_num >= file_size)) {
+        fprintf(stderr, "Error: %s does not have block %d", name, block_num);
+        return;
+    }
+
+    lseek(disk, (inode_arr[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
+    read(disk, buffer, ONE_KB); 
 }
 
 
