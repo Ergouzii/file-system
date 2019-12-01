@@ -31,3 +31,5 @@ bool check_name_len(char *name);
 bool check_block_num(int block_num);
 bool check_file_size(int size);
 void print_cmd_error(char *name, int line_num);
+int check_file_exist(char name[5]);
+bool check_has_block(int block_num, char name[5], int target_index);

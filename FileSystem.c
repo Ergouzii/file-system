@@ -57,6 +57,7 @@ void handle_input(char *tokenized[], char *input_file, int line_num) {
     char *cmd = tokenized[0];
     if (strcmp(cmd, "M") == 0) {
         if (check_num_args(tokenized, 2)) {
+            disk_name = tokenized[1];
             fs_mount(disk_name);
         } else {
             print_cmd_error(input_file, line_num);
@@ -438,7 +439,7 @@ void fs_delete(char name[5]) {
         char buff[ONE_KB];
         memset(buff, 0, ONE_KB);
         for (int i = 0; i < file_size; i++) {
-            write(disk_fp, buff, ONE_KB);                     // clear data blocks
+            write(disk_fp, buff, ONE_KB);                  // clear data blocks
         }
 
         // zero out the occupied blocks
@@ -473,36 +474,12 @@ Reads the block-number-th block from the specified file into buffer.
 Usage: R <file name> <block number>
 */
 void fs_read(char name[5], int block_num) {
-    Inode *inode_arr = super_block.inode;
-    bool name_found = false;
-    int target_index;
-    for (int i = 0; i < NUM_INODES; i++) {
-        uint8_t dir_parent = inode_arr[i].dir_parent << 1;
-        dir_parent = dir_parent >> 1;
-        // if under cwd & name matched & is a file
-        if ((inode_arr[i].dir_parent == cwd) && \
-                (strcmp(inode_arr[i].name, name) == 0) && \
-                    (inode_arr[i].dir_parent >> 7 == 0)) {
-            name_found = true;
-            target_index = i;
-        }
-    }
-    if (!name_found) {
-        fprintf(stderr, "Error: File %s does not exist\n", name);
-        return;
-    }
-    uint8_t used_size = inode_arr[target_index].used_size;
-    uint8_t file_size = used_size << 1;
-    file_size = used_size >> 1;
+    int target_index = check_file_exist(name);
 
-    // check if block_num within [0, file_size - 1]
-    if ((block_num < 0) || (block_num >= file_size)) {
-        fprintf(stderr, "Error: %s does not have block %d\n", name, block_num);
-        return;
+    if (check_has_block(block_num, name, target_index)) {
+        lseek(disk_fp, (super_block.inode[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
+        read(disk_fp, buffer, ONE_KB); 
     }
-
-    lseek(disk_fp, (inode_arr[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
-    read(disk_fp, buffer, ONE_KB); 
 }
 
 
@@ -512,7 +489,12 @@ Writes the data in the buffer to the block-number-th block of the specified file
 Usage: W <file name> <block number>
 */
 void fs_write(char name[5], int block_num) {
+    int target_index = check_file_exist(name);
 
+    if (check_has_block(block_num, name, target_index)) {
+        lseek(disk_fp, (super_block.inode[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
+        write(disk_fp, buffer, ONE_KB); 
+    }
 }
 
 
@@ -624,4 +606,42 @@ bool check_file_size(int size) {
 
 void print_cmd_error(char *file_name, int line_num) {
     fprintf(stderr, "Command Error: %s, %d\n", file_name, line_num);
+}
+
+// return file's index if given file name exists in current working dir (cwd)
+// return -1 if given file name does not exist
+int check_file_exist(char name[5]) {
+    Inode *inode_arr = super_block.inode;
+    bool name_found = false;
+    int target_index;
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t dir_parent = inode_arr[i].dir_parent << 1;
+        dir_parent = dir_parent >> 1;
+        // if under cwd & name matched & is a file
+        if ((inode_arr[i].dir_parent == cwd) && \
+                (strcmp(inode_arr[i].name, name) == 0) && \
+                    (inode_arr[i].dir_parent >> 7 == 0)) {
+            name_found = true;
+            target_index = i;
+        }
+    }
+    if (!name_found) {
+        fprintf(stderr, "Error: File %s does not exist\n", name);
+        return -1;
+    }
+    return target_index;
+}
+
+// return true if inode at target_index has a block_num in range [0, file_size - 1]
+// return false otherwise
+bool check_has_block(int block_num, char name[5], int target_index) {
+    uint8_t used_size = super_block.inode[target_index].used_size;
+    uint8_t file_size = used_size << 1;
+    file_size = used_size >> 1;
+    // check if block_num within [0, file_size - 1]
+    if ((block_num < 0) || (block_num >= file_size)) {
+        fprintf(stderr, "Error: %s does not have block %d\n", name, block_num);
+        return false;
+    }
+    return true;
 }
