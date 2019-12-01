@@ -505,6 +505,12 @@ provided. If fewer characters are provided, the remaining bytes are set to 0.
 Usage: B <new buffer characters>
 */
 void fs_buff(uint8_t buff[1024]) {
+    memset(buffer, 0, ONE_KB);                              // flush the buffer
+
+    // copy new buffer to global buffer
+    for (int i = 0; i < ONE_KB; i++) {
+        buffer[i] = buff[i];
+    }
 }
 
 
