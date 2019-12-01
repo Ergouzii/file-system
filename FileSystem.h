@@ -25,4 +25,9 @@ void fs_defrag(void);
 void fs_cd(char name[5]);
 
 void tokenize(char *str, const char *delim, char *argv[]);
-void handle_input(char *tokenized[]);
+void handle_input(char *tokenized[], char *input_file, int line_num);
+bool check_num_args(char *tokenized[], int num_args);
+bool check_name_len(char *name);
+bool check_block_num(int block_num);
+bool check_file_size(int size);
+void print_cmd_error(char *name, int line_num);
