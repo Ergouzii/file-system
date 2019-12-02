@@ -15,6 +15,7 @@
 int disk_fp;
 char *disk_name;
 char buffer[ONE_KB];
+uint8_t root_dir = 127;
 uint8_t cwd;                                             // current working dir
 Super_block super_block;                                  // init a super block
 Super_block old_super_block;                           // keep track of old s_b
@@ -297,7 +298,7 @@ void fs_mount(char *new_disk_name) {
     } else {                                                   // if consistent
         old_super_block = super_block;
         has_old_super_block = true;
-        cwd = 127;                                 // set cwd to root: 01111111
+        cwd = root_dir;                                 // set cwd to root: 01111111
     }
 }
 
@@ -520,7 +521,44 @@ Lists all the files/dirs in the current working dir, including . and ..
 Usage: L
 */
 void fs_ls(void) {
+    Inode *inode_arr = super_block.inode;
 
+    // print . and ..
+    char cur[5] = ".";
+    char parent[5] = "..";
+    int cur_num_children = get_num_children(cwd);
+    printf("%-5s %3d\n", cur, cur_num_children);
+    int parent_num_children;
+
+    if (cwd == root_dir) {                                    // if cwd is root
+        int parent_num_children = cur_num_children;
+    } else {
+        // find parent's num_children
+        uint8_t dir_parent = inode_arr[cwd].dir_parent << 1;
+        dir_parent = dir_parent >> 1;
+        parent_num_children = get_num_children(dir_parent);
+    }
+    printf("%-5s %3d\n", parent, parent_num_children);
+
+    // print children of cwd
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t dir_parent = inode_arr[i].dir_parent << 1;
+        dir_parent = dir_parent >> 1;
+        if (dir_parent == cwd) {                             // if is under cwd
+            char name[5] = inode_arr[i].name;
+            
+            uint8_t is_dir = inode_arr[i].dir_parent >> 7;
+            if (is_dir == 0) {                                  // if it's file
+                uint8_t size = inode_arr[i].used_size << 1;
+                size = size >> 1;
+                printf("%-5s %3d KB\n", name, size);
+            } else if (is_dir == 1) {                            // if it's dir
+                int num_children = get_num_children(i);
+                printf("%-5s %3d\n", name, num_children);
+            }
+            
+        }
+    }
 }
 
 
@@ -650,4 +688,20 @@ bool check_has_block(int block_num, char name[5], int target_index) {
         return false;
     }
     return true;
+}
+
+// return the number of children of a directory given its index in inode (0-125)
+int get_num_children(int targer_index) {
+
+    int num_children = 2;                      // init to 2 because of . and ..
+
+    Inode *inode_arr = super_block.inode;
+    for (int i = 0; i < NUM_INODES; i++) {
+        uint8_t dir_parent = inode_arr[i].dir_parent << 1;
+        dir_parent = dir_parent >> 1;
+        if (targer_index == dir_parent) {  // once find a file/dir under target
+            num_children += 1;
+        }
+    }
+    return num_children;
 }
