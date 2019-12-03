@@ -140,7 +140,7 @@ void fs_mount(char *new_disk_name) {
     disk_fp = open(new_disk_name, O_RDWR);
     if (disk_fp == -1) {                            // if disk name does not exist
         fprintf(stderr, "Error: Cannot find disk %s\n", new_disk_name);
-        exit(1);
+        return;
     }
 
     disk_name = new_disk_name;
@@ -148,7 +148,7 @@ void fs_mount(char *new_disk_name) {
     // read the super block from disk
     read(disk_fp, &super_block.free_block_list, 16);
     read(disk_fp, &super_block.inode, 126*8);
-    char *free_block_arr = super_block.free_block_list;
+    char free_block_arr[16] = super_block.free_block_list;
     Inode *inode_arr = super_block.inode;
 
     //-------------------------------------------------------------------------
@@ -169,7 +169,7 @@ void fs_mount(char *new_disk_name) {
             uint8_t start_index = (start_block + j) / 8; // index of block in free block arr
             uint8_t start_pos = (start_block + j) % 8;
             uint8_t byte = free_block_arr[start_index];
-            uint8_t bit = byte & (1 << (7 - start_pos));    // mask out the bit
+            uint8_t bit = byte & (128 >> start_pos);    // mask out the bit
             bit = bit >> (7 - start_pos);
             if ((bit ^ inode_in_use) != 0) {
                 fprintf(stderr, "Error: File System in %s is inconsistent (error code: %d)\n", new_disk_name, 1);
@@ -347,7 +347,7 @@ void fs_create(char name[5], int size) {
     }
 
     //-------------------------------------------------------------------------
-    char *free_block_arr = super_block.free_block_list;
+    char free_block_arr[16] = super_block.free_block_list;
     int num_free_blocks = 0;
     uint8_t start_block = 0;
 
@@ -428,7 +428,7 @@ void fs_delete(char name[5]) {
     //------------------zero out the file/dir----------------------------------
     if ((inode_arr[target_index].dir_parent >> 7) == 0) {       // if it's file
 
-        char *free_block_arr = super_block.free_block_list;
+        char free_block_arr[16] = super_block.free_block_list;
         uint8_t start_block = inode_arr[target_index].start_block;
         uint8_t used_size = inode_arr[target_index].used_size;
         uint8_t file_size;
@@ -477,9 +477,11 @@ Usage: R <file name> <block number>
 void fs_read(char name[5], int block_num) {
     int target_index = check_file_exist(name);
 
-    if (check_has_block(block_num, name, target_index)) {
-        lseek(disk_fp, (super_block.inode[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
-        read(disk_fp, buffer, ONE_KB); 
+    if (target_index > -1) {
+        if (check_has_block(block_num, name, target_index)) {
+            lseek(disk_fp, (super_block.inode[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
+            read(disk_fp, buffer, ONE_KB); 
+        }
     }
 }
 
@@ -492,9 +494,11 @@ Usage: W <file name> <block number>
 void fs_write(char name[5], int block_num) {
     int target_index = check_file_exist(name);
 
-    if (check_has_block(block_num, name, target_index)) {
-        lseek(disk_fp, (super_block.inode[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
-        write(disk_fp, buffer, ONE_KB); 
+    if (target_index > -1) {
+        if (check_has_block(block_num, name, target_index)) {
+            lseek(disk_fp, (super_block.inode[target_index].start_block + block_num) * ONE_KB, SEEK_SET);
+            write(disk_fp, buffer, ONE_KB); 
+        }
     }
 }
 
@@ -569,12 +573,63 @@ must be deleted (zeroed out).
 Usage: E <file name> <new size>
 */
 void fs_resize(char name[5], int new_size) {
+    Inode *inode_arr = super_block.inode;
 
+    int target_index = check_file_exist(name);
+    if (target_index > -1) {
+        uint8_t file_size = inode_arr[target_index].used_size << 1;
+        file_size = file_size >> 1;
+        uint8_t start_block = inode_arr[target_index].start_block;
+        // TODO: put zeros end of block in file when new_size > file_size?
+        if (new_size > file_size) {          // if new_size > current file size
+            if (check_free_blocks(start_block, new_size)) { // if enough blocks
+                ;
+            } else {                                     // if no enough blocks
+                uint8_t new_start_block = -1;
+                for (int i = 0; i < 127; i++) {
+                    if (check_free_blocks(i, new_size)) {
+                        new_start_block = i + 1; // add 1 since s_b is 1-127 for file
+                        break;
+                    }
+                }
+                if (new_start_block == -1) {
+                    fprintf(stderr, "Error: File %s cannot expand to size %d\n", name, new_size);
+                    return;
+                } else {                              // relocate block success
+                    inode_arr[target_index].start_block = new_start_block;
+                }
+            }
+
+            // update used_size
+            inode_arr[target_index].used_size = new_size | 128; 
+
+            // update free block list
+            start_block = inode_arr[target_index].start_block; // make sure s_b updated
+            char free_block_arr[16] = super_block.free_block_list;
+            for (int i = 0; i < new_size; i++) {
+                uint8_t start_index = (start_block + i) / 8; // index of block in free block arr
+                uint8_t start_pos = (start_block + i) % 8;
+                free_block_arr[start_index] = \
+                    free_block_arr[start_index] | (128 >> start_pos);
+            }
+
+        } else {                             // if new_size < current file size
+            // zero out extra blocks in file
+            uint8_t offset = new_size - file_size;
+            char buff[ONE_KB * offset];
+            memset(buff, 0, ONE_KB * offset);
+            lseek(disk_fp, (super_block.inode[target_index].start_block + offset) * ONE_KB, SEEK_SET);
+            write(disk_fp, buff, ONE_KB * offset);
+
+            // update used_size
+            inode_arr[target_index].used_size = new_size | 128;
+        }
+    }
 }
 
 
 /*
-Defragments the disk, moveing used blocks toward the superblock while maintaning
+Defragments the disk, moving used blocks toward the superblock while maintaning
 the file data. As a result of performing defragmentation, contiguous free blocks
 can be created.
 
@@ -704,4 +759,23 @@ int get_num_children(int targer_index) {
         }
     }
     return num_children;
+}
+
+// return true if there is enough space in free block list for inode that starts
+// from start_block with a certain size
+bool check_free_blocks(uint8_t start_block, uint8_t size) {
+
+    char free_block_arr[16] = super_block.free_block_list;
+
+    for (int j = 0; j < size; j++) {
+        uint8_t start_index = (start_block + j) / 8; // index of block in free block arr
+        uint8_t start_pos = (start_block + j) % 8;
+        uint8_t byte = free_block_arr[start_index];
+        uint8_t bit = byte & (128 >> start_pos);        // mask out the bit
+        bit = bit >> (7 - start_pos);
+        if (bit != 0) {
+            return false;
+        }
+    }
+    return true;
 }
