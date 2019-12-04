@@ -398,6 +398,14 @@ void fs_create(char name[5], int size) {
     } else {                                                    // if it's file
         inode_arr[available_inode_index].dir_parent = cwd;
     }
+
+    // update free block list
+    for (int i = 0; i < size; i++) {
+        uint8_t start_index = (start_block + i) / 8; // index of block in free block arr
+        uint8_t start_pos = (start_block + i) % 8;
+        uint8_t byte = super_block.free_block_list[start_index];
+        super_block.free_block_list[start_index] = byte | (128 >> start_pos); 
+    }
 }
 
 
@@ -428,7 +436,6 @@ void fs_delete(char name[5]) {
     //------------------zero out the file/dir----------------------------------
     if ((inode_arr[target_index].dir_parent >> 7) == 0) {       // if it's file
 
-        char free_block_arr[16] = super_block.free_block_list;
         uint8_t start_block = inode_arr[target_index].start_block;
         uint8_t used_size = inode_arr[target_index].used_size;
         uint8_t file_size;
@@ -447,8 +454,8 @@ void fs_delete(char name[5]) {
         for (int j = 0; j < file_size; j++) {
             uint8_t start_index = (start_block + j) / 8; // index of block in free block arr
             uint8_t start_pos = (start_block + j) % 8;
-            uint8_t byte = free_block_arr[start_index];
-            free_block_arr[start_index] = byte ^ (1 << (7 - start_pos)); // zero out the bit
+            uint8_t byte = super_block.free_block_list[start_index];
+            super_block.free_block_list[start_index] = byte ^ (1 << (7 - start_pos)); // zero out the bit
         }
 
         for (int i = 0; i < 5; i++) {
@@ -605,21 +612,27 @@ void fs_resize(char name[5], int new_size) {
 
             // update free block list
             start_block = inode_arr[target_index].start_block; // make sure s_b updated
-            char free_block_arr[16] = super_block.free_block_list;
             for (int i = 0; i < new_size; i++) {
                 uint8_t start_index = (start_block + i) / 8; // index of block in free block arr
                 uint8_t start_pos = (start_block + i) % 8;
-                free_block_arr[start_index] = \
-                    free_block_arr[start_index] | (128 >> start_pos);
+                super_block.free_block_list[start_index] = \
+                    super_block.free_block_list[start_index] | (128 >> start_pos);
             }
 
-        } else {                             // if new_size < current file size
+        } else {                             // if new_size <= current file size
             // zero out extra blocks in file
-            uint8_t offset = new_size - file_size;
+            uint8_t offset = file_size - new_size;
             char buff[ONE_KB * offset];
             memset(buff, 0, ONE_KB * offset);
             lseek(disk_fp, (super_block.inode[target_index].start_block + offset) * ONE_KB, SEEK_SET);
             write(disk_fp, buff, ONE_KB * offset);
+
+            // update free block list
+            for (int i = 0; i < offset; i++) {
+                uint8_t start_index = (start_block + new_size + i) / 8; // index of block in free block arr
+                uint8_t start_pos = (start_block + new_size + i) % 8;
+                super_block.free_block_list[start_index] &= ~(128 >> start_pos);
+            }
 
             // update used_size
             inode_arr[target_index].used_size = new_size | 128;
@@ -636,7 +649,7 @@ can be created.
 Usage: O
 */
 void fs_defrag(void) {
-
+    
 }
 
 
