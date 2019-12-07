@@ -14,4 +14,4 @@ clean:
 	rm -rf *.o *gch fs
 
 compress:
-	zip fs-sim.zip *.c *.h *.md Makefile
+	zip fs-sim.zip *.c *.h *.md Makefile create_fs
