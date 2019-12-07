@@ -8,7 +8,7 @@ compile:
 	$(CC) $(WARN) $(CCOPTS) -c FileSystem.c FileSystem.h
 
 fs: FileSystem.o
-	$(CC) $(WARN) $(CCOPTS) -o fs
+	$(CC) $(WARN) $(CCOPTS) -o fs FileSystem.o
 
 clean:
 	rm -rf *.o *gch fs
