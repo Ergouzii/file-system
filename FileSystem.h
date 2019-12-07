@@ -1,5 +1,12 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <stdbool.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 typedef struct {
 	char name[5];        // Name of the file or directory
