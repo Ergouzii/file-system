@@ -11,3 +11,7 @@ When program starts, I read the input file and read content line by line. For ea
 Then I compare each `cmd` to the commands asked in assignment description. If `cmd` matches none of the cases, an error message is printed.
 
 After finishing each function, I give them a few lines of input and test them well. After testing a function, I start writing the next one.
+
+# Sys calls:
+
+The sys calls I used in my program include `open` (in `mount`), `read` (when accessing the disk), `write` (when writing to the disk), `lseek` (when relocate disk's file descriptor of the disk)
